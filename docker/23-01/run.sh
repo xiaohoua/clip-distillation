@@ -8,6 +8,6 @@ docker run \
     --ipc host \
     --gpus all \
     --shm-size 14G \
-    --device /dev/video0 \
     -v $(pwd):/clip_distillation \
+    -v /data/dataset/ImageNet/extract/:/ImageNet:ro \
     clip_distillation:23-01
