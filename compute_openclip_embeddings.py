@@ -27,7 +27,7 @@ from open_clip.pretrained import _PRETRAINED
 if __name__ == "__main__":
 
     parser = ArgumentParser()
-    parser.add_argument("input_folder", type=str)
+    parser.add_argument("input_folder", type=str, help="Path to the root folder of the ImageNet dataset")
     parser.add_argument("output_folder", type=str)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=8)
@@ -39,13 +39,21 @@ if __name__ == "__main__":
     if not os.path.exists(args.output_folder):
         os.makedirs(args.output_folder)
 
+    # image_paths = glob.glob(os.path.join(
+    #     args.input_folder, "*.jpg"
+    # ))
+    # image_paths += glob.glob(os.path.join(
+    #     args.input_folder, "*.png"
+    # ))
     image_paths = glob.glob(os.path.join(
-        args.input_folder, "*.jpg"
+    args.input_folder, "train", "*", "*.JPEG"
     ))
-    image_paths += glob.glob(os.path.join(
-        args.input_folder, "*.png"
-    ))
+    # image_paths += glob.glob(os.path.join(
+    #     args.input_folder, "val", "*", "*.JPEG"
+    # ))
 
+    # def get_image_id_from_path(image_path):
+    #     return os.path.basename(image_path).split('.')[0]
     def get_image_id_from_path(image_path):
         return os.path.basename(image_path).split('.')[0]
     

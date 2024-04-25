@@ -35,6 +35,8 @@ from torchvision.transforms import (
     CenterCrop
 )
 from torch.utils.tensorboard import SummaryWriter
+#解决huggingface连接不稳定问题 命令行HF_ENDPOINT=https://hf-mirror.com python xxx.py
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
@@ -42,15 +44,29 @@ IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 def get_image_id_from_path(image_path):
     return os.path.basename(image_path).split('.')[0]
 
-
 def get_embedding_path(embedding_folder, image_id):
     return os.path.join(embedding_folder, image_id + ".npy")
 
 
-def find_images(folder: str):
-    image_paths = glob.glob(os.path.join(args.images_folder, "*.jpg"))
-    image_paths += glob.glob(os.path.join(args.images_folder, "*.png"))
-    return image_paths
+# def find_images(folder: str):
+#     image_paths = glob.glob(os.path.join(
+#         args.images_folder, "train", "*", "*.JPEG"
+#     ))
+#     return image_paths
+def find_images(images_folder: str):
+        image_paths = []
+        train_folder = os.path.join(images_folder, 'train')
+
+        # 获取train文件夹下的类别文件夹
+        class_folders = sorted(glob.glob(os.path.join(train_folder, "*")))
+        selected_class_folders = class_folders[:800]
+
+        for class_folder in selected_class_folders:
+            # 获取类别文件夹下的图像文件路径
+            class_images = sorted(glob.glob(os.path.join(class_folder, "*.JPEG")))[:500]
+            image_paths.extend(class_images)
+
+        return image_paths
 
 
 class ImageEmbeddingDataset(Dataset):
@@ -145,7 +161,7 @@ if __name__ == "__main__":
         num_classes=args.output_dim
     )
     model = model.to(args.device)
-
+    print("=======================model==============")
     # Setup optimizer
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(
@@ -160,7 +176,7 @@ if __name__ == "__main__":
             weight_decay=args.weight_decay,
             momentum=args.momentum
         )
-
+    print("=======================optimizer==============")
     transform = Compose([
         Resize(args.image_size),
         CenterCrop(args.image_size),
@@ -173,7 +189,11 @@ if __name__ == "__main__":
         embedding_paths=embedding_paths,
         transform=transform
     )
-
+    print(image_paths[0])
+    print(embedding_paths[0])
+    
+    print("=======================dataset==============")
+    # print(dataset[0])
     data_loader = DataLoader(
         dataset=dataset,
         num_workers=args.num_workers,
@@ -193,13 +213,15 @@ if __name__ == "__main__":
         start_epoch = 0  # don't use start checkpoints epoch
     else:
         start_epoch = 0
-
+    print("=======================checkpoint_path==============")
     writer_path = os.path.join(args.output_dir, "log")
     writer = SummaryWriter(writer_path)
 
     model = model.train()
 
-
+    print("=======================model.train==============")
+    print("start_epoch")
+    print(start_epoch)
     if args.use_asp:
         from apex.contrib.sparsity import ASP
         ASP.init_model_for_pruning(model, mask_calculator="m4n2_1d", verbosity=2, whitelist=[torch.nn.Linear, torch.nn.Conv2d], allow_recompute_mask=False, allow_permutation=False)

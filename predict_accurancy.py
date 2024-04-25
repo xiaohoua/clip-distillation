@@ -9,6 +9,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from argparse import ArgumentParser
 import open_clip
+#解决huggingface连接不稳定问题 命令行HF_ENDPOINT=https://hf-mirror.com python xxx.py
+import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
@@ -24,7 +27,8 @@ if __name__ == "__main__":
     parser.add_argument("--pretrained", type=str, default="laion2b_s34b_b79k")
     parser.add_argument("--checkpoint_path", type=str, default="data/models/resnet18/checkpoint.pth")
     parser.add_argument("--num_classes", type=int, default=512)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--text_embedding_path", type=str, default="data/imagenet/laion_ViT-B-32/text_embeddings.npy")
+    parser.add_argument("--device", type=str, default="cuda:7")
     args = parser.parse_args()
 
     device = args.device
@@ -44,12 +48,15 @@ if __name__ == "__main__":
             model_name=args.model_name,
             num_classes=args.num_classes
         )
+        print("model is student")
         checkpoint = torch.load(args.checkpoint_path)
         model.load_state_dict(checkpoint["model"])
     else:
+        print("model is teacher")
         model, _, preprocess = open_clip.create_model_and_transforms(
             args.model_name, 
-            pretrained=args.pretrained
+            # pretrained=args.pretrained
+            pretrained='/clip_distillation/data/models/ViT-g-14-laion2B-s34B-b88K/open_clip_pytorch_model.bin'
         )
 
     model = model.eval().to(device)
@@ -64,7 +71,8 @@ if __name__ == "__main__":
         return logits
 
     text_embeddings = torch.from_numpy(
-        np.load('imagenet/text_embeddings.npy')
+        # np.load('data/imagenet/text_embeddings.npy')
+        np.load(args.text_embedding_path)
     ).to(device).float()
 
     data_loader = DataLoader(

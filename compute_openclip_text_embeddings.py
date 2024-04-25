@@ -23,13 +23,16 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from argparse import ArgumentParser
 from open_clip.pretrained import _PRETRAINED
+#解决huggingface连接不稳定问题 命令行HF_ENDPOINT=https://hf-mirror.com python xxx.py
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("text_prompts_file", type=str)
-    parser.add_argument("output_path", type=str)
+    parser.add_argument("output_path", type=str, default="/data/imagenet/laion_ViT-B-32/text_embeddings.npy")
     parser.add_argument("--model_name", type=str, default="ViT-B-32")
+    parser.add_argument("--pretrained", type=str, default="laion2b_s34b_b79k")
     args = parser.parse_args()
 
     with open(args.text_prompts_file, 'r') as f:
