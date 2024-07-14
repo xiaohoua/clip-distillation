@@ -1,13 +1,5 @@
 # CLIP Knowledge Distillation
-
-
-<img src="assets/overview.png" height="320"/>
-
-This repository contains code and instructions that enable you
-to create your own customized image classification models
-with zero-labeled data, by performing knowledge distillation of OpenCLIP models.
-
-Even if you don't need an image classifier directly, you may find this project helpful as inspiration for how you can use knowledge distillation to optimized models for inference, or as an example of how to train models with quantization aware training and structured sparsity for inference on NVIDIA Jetson. 
+基于英伟达的知识蒸馏框架(https://github.com/NVIDIA-AI-IOT/clip-distillation)实现一套新的用于广义零样本的知识蒸馏方法 
 
 This project includes,
 
