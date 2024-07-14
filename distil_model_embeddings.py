@@ -35,6 +35,7 @@ from torchvision.transforms import (
     CenterCrop
 )
 from torch.utils.tensorboard import SummaryWriter
+from vision_transformer_model import VisionTransformer
 #解决huggingface连接不稳定问题 命令行HF_ENDPOINT=https://hf-mirror.com python xxx.py
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
@@ -90,6 +91,7 @@ class ImageEmbeddingDataset(Dataset):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("model_type", type=str, default="timm",help="timm,Write_by_hand")
     parser.add_argument("model_name", type=str)
     parser.add_argument("images_folder", type=str)
     parser.add_argument("embeddings_folder", type=str)
@@ -97,7 +99,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=512, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--device", type=str, default="cuda:7")
     parser.add_argument("--shuffle", type=bool, default=True)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -110,6 +112,12 @@ if __name__ == "__main__":
     parser.add_argument("--use_asp", action="store_true")
     parser.add_argument("--init_checkpoint", type=str, default=None)
     parser.add_argument("--use_qat", action="store_true")
+    #蒸馏手写ViT
+
+    parser.add_argument("--vit_size", type=int, default=224)#vit_size=224 vit_patch_sz就要等于4，或者vit_size=112 vit_patch_sz=8
+    parser.add_argument("--vit_patch_sz", type=int, default=4)
+    parser.add_argument("--vit_layers", type=int, default=3)
+    parser.add_argument("--vit_heads", type=int, default=8)
     args = parser.parse_args()
 
     checkpoint_path = os.path.join(args.output_dir, "checkpoint.pth")
@@ -154,14 +162,25 @@ if __name__ == "__main__":
         # use QAT monkey-patching
         print("Initializing quantization aware training (QAT)")
         quant_modules.initialize()
-
-    model = timm.create_model(
-        model_name=args.model_name,
-        pretrained=args.pretrained,
-        num_classes=args.output_dim
-    )
+    #model
+    if(args.model_type == "timm"):
+        model = timm.create_model(
+            model_name=args.model_name,
+            pretrained=args.pretrained,
+            num_classes=args.output_dim
+        )
+    elif args.model_type == "Write_by_hand":
+        model = VisionTransformer(
+            input_resolution=args.vit_size,
+            patch_size=args.vit_patch_sz,
+            width=args.output_dim,  # Embed dim
+            layers=args.vit_layers,
+            heads=args.vit_heads,
+        )
+    
+    
     model = model.to(args.device)
-    print("=======================model==============")
+    
     # Setup optimizer
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(
@@ -238,10 +257,12 @@ if __name__ == "__main__":
             
             optimizer.zero_grad()
             output_embedding = model(image)
-
+            # print(output_embedding.shape)
+            
             loss = criterion(output_embedding, embedding)
 
             loss.backward()
+            # break
             optimizer.step()
 
             epoch_loss += float(loss)

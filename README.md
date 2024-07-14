@@ -1,20 +1,7 @@
 # CLIP Knowledge Distillation
-基于英伟达的知识蒸馏框架(https://github.com/NVIDIA-AI-IOT/clip-distillation)实现一套新的用于广义零样本的知识蒸馏方法 
+基于英伟达的知识蒸馏框架(https://github.com/NVIDIA-AI-IOT/clip-distillation)实现一套新的用于广义零样本的知识蒸馏方法。
 
-This project includes,
-
-1. Scripts to search and download relevant data from the LAION database to use for distillation
-2. Scripts to distil any OpenCLIP model to any Pytorch image models (timm) CNN model.
-    - Supports Quantization Aware Training (QAT) for downstream INT8 inference
-    - Supports training to enforce 2:4 structured sparsity with the ASP library
-3. Scripts to run inference with NVIDIA TensorRT
-    - Supports INT8 model
-    - Supports acceleration of 2:4 structured sparse models on certain NVIDIA Jetson platforms, like NVIDIA Jetson Orin Nano.
-
-To get started, follow the instructions below.
-
-> If you're new to the subject, check out our tutorial [jetson-intro-to-distillation](https://github.com/NVIDIA-AI-IOT/jetson-intro-to-distillation)
-> for an introduction to knowledge distillation!
+原有框架可以对相关数据集进行蒸馏，这里我先使用更知名的大型数据集ImageNet进行实验，后续补充零样本学习领域的数据集的相关实验。
 
 
 ## Instructions
@@ -33,117 +20,62 @@ To get started, follow the instructions below.
 
 ### Search for relevant image URLs in the LAION database using CLIP filtering
 
-The first thing we need to do when distilling a model, is obtain data to use for distillation. 
+首先生成图片数据集的相关prompts(对于使用的ImageNet来说就是图片路径于图片类别相关的名称)。以供后续使用。
 
-For this task, we'll look for relevant images by searching the LAION database.  We've provided a script to make this simple.
+使用``utils_hou/build_imagenet_mapping.py``生成prompts，并将生成的prompts存放在 ``data/imagenet/text_prompts.txt`` 
 
-To search for relevant images, first create a file ``data/text_prompts.txt`` with the text prompts to query.
-
-Each prompt should exist on it's own line.
-
-```txt
-a dog
-a cat
-```
-
-Next, call the script to query the images that match the text prompts.
-
-```bash
-python3 search_clip_images.py \
-    "data/text_prompts.txt" \
-    "data/image_urls.txt" \
-    -n 5000 \
-    -m 10000 \
-    --max_workers 2 \
-    --append
-```
-
-This will output a file ``data/image_urls.txt`` that contains the URLs of images matching our text prompt queries.
-
-For the full set of arguments please type
-
-```bash
-python3 search_clip_images.py --help
-```
-
-### Download images from URL file
-
-Now that we've found relevant images to use for distillation, we need to download them.
-
-To do so, we call the following script to download images to an output folder.
-
-```bash
-python3 download_images.py \
-    "data/image_urls.txt" \
-    "data/images" \
-    --max_workers 32 \
-    --timeout 2
-```
-
-This script will download images to the folder ``data/images``.  Each image
-will be given a unique filename base on it's URL.  
-
-For the full set of arguments please type
-
-```bash
-python3 download_images.py --help
-```
-
-<a name="step-2"></a>
 
 ## Step 2 - Compute OpenCLIP embeddings
 
-The images we downloaded above will be used as inputs to our teacher and student models during distillation.  Unfortunately, it can be slow to execute the teacher during training.  
+在蒸馏过程中，我们图像数据将用作我们的教师和学生模型的输入。但是，在蒸馏期间执行教师模型可能很慢。
 
-To speed up this process, we'll pre-compute the outputs of our teacher model so we don't need to execute the teacher model during training.
+为了加快这个过程，我们将预先计算我们的教师模型的输出，这样我们就不需要在训练期间执行教师模型。也就是提前将图片数据喂给教师模型，提前得到教师模型的输出（embeddings）。然后再将embeddings喂给学生模型，这样就能大大提高学生模型的学习速度。
 
 To do this, call the ``compute_openclip_embeddings.py`` script as follows,
 
 ```bash
 python3 compute_openclip_embeddings.py \
-    data/images \
-    data/embeddings \
+    /data/dataset/ImageNet/extract \
+    data/imagenet/ViT-g-14-laion2B-s34B-b88K/image_embedding \
     --batch_size 16 \
     --num_workers 8 \
     --model_name ViT-B-32 \
     --pretrained laion2b_s34b_b79k
 ```
 
-This will write the ouptput embeddings to the folder ``data/embeddings``, with filenames that match the image filenames, except for the file extensions.
+这将把输出嵌入写入文件夹``data/imagenet/ViT-g-14-laion2B-s34B-b88K/image_embedding``，文件名与图像文件名匹配，除了文件扩展名。
 
-> Note: For available model names and pretrained weight identifiers please reference [OpenCLIP Repo](https://github.com/mlfoundations/open_clip/blob/fb72f4db1b17133befd6c67c9cf32a533b85a321/src/open_clip/pretrained.py#L227).
-
-For the full set of arguments please type
-
-```bash
-python3 compute_openclip_embeddings.py --help
-```
+因为大模型普遍都有CLIP架构，也就是同时具有图片编码器和文本编码器，上述方法可以获取图像嵌入，我们也可以用类似的方法获取文本嵌入，具体代码见``compute_openclip_text_embeddings.py``
 
 <a name="step-3"></a>
 
 ## Step 3 - Train the student CNN model to mimic the OpenCLIP model
 
-Now that we have the data to use for knowledge distillation, we can perform the distillation (student model training) by calling the ``distil_model_embeddings.py`` script as follows.
+目前实现了两种蒸馏方法，一种是以图像嵌入为目标，尽可能让学生模型和教师模型生成的图像嵌入类似，从而让学生模型的性能逼近教师模型，具体代码见
+ ``distil_model_embeddings.py`` 
 
 ```bash
 python3 distil_model_embeddings.py \
-    resnet18 \
-    data/images \
-    data/embeddings \
-    data/models/resnet18 \
+    --model_name resnet18 \
+    --images_folder /data/dataset/ImageNet/extract \
+    --embeddings_folder data/imagenet/ViT-g-14-laion2B-s34B-b88K/image_embedding \
+    --text_embedding_path data/imagenet/ViT-g-14-laion2B-s34B-b88K/.npy \
+    --output_dir data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18 \
+```
+
+第二种是把图像嵌入和图像类别同时作为蒸馏目标，具体代码见``distil_model_embeddings.py``
+
+```bash
+python3 distil_model_embeddings_label.py \
+    --model_name resnet18 \
+    --images_folder /data/dataset/ImageNet/extract \
+    --embeddings_folder data/imagenet/ViT-g-14-laion2B-s34B-b88K/image_embedding \
+    --text_embedding_path data/imagenet/ViT-g-14-laion2B-s34B-b88K/.npy \
+    --output_dir data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18 \
     --output_dim 512 \
     --pretrained
 ```
-
-This will output model checkpoints and information to ``data/models/resnet18``.
-
-The distilled model we use in this example is resnet18.  This model is highly optimized by TensorRT, and we can readily apply other optimizations like reduced precision and structured sparsity during training.  Please see the additional steps below for more information.
-
-For the full set of arguments please type
-
-```bash
-python3 distil_model_embeddings.py --help
-```
+输出模型的 checkpoints 会被保存在 ``data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18``.
 
 
 <a name="step-4"></a>
@@ -153,25 +85,13 @@ python3 distil_model_embeddings.py --help
 ### Compute text embeddings
 
 During distillation, we trained our student model to match the *features* of our open-clip model.  However, we're interested in creating a classification model.
+如果我们知识蒸馏的过程中是以图像嵌入和图像类别作为共同的目标，那学生模型就能直接用来做图像分类。如果只用了图像嵌入的话，就需要结合文本编码器做图像分类。
+具体代码见``predict_accurancy.py``
 
-To create the zero-shot classification model, we need to generate text embeddings from the text prompts that describe our class labels.
-
-To do so, we use the pre-trained OpenCLIP text encoder.
-
-We call the ``compute_openclip_text_embeddings.py`` script to create the text embeddings.
-
-```bash
-python3 compute_openclip_text_embeddings.py \
-    data/text_prompts.txt \
-    data/text_embeddings.npy \
-    --model_name ViT-B-32
-```
-
-In this instance, we used the same text prompts we used for image search as our text prompts for classification.  
 
 ### Predict single image with PyTorch
 
-Now that we have computed th text prompts for our image classes, we can perform image classification with our PyTorch model as follows:
+在一开始获得了text_prompts，可以利用它和pytorch模型进行图像分类
 
 ```bash
 python3 predict_pytorch.py \
@@ -182,63 +102,16 @@ python3 predict_pytorch.py \
     --text_prompts data/text_prompts.txt
 ```
 
-### Live demo with camera
 
-We can similarily perform inference on a live camera feed as follows:
 
-```bash
-python3 demo_pytorch.py \
-    resnet18 \
-    data/models/resnet18/checkpoint.pth \
-    data/text_embeddings.npy \
-    --text_prompts data/text_prompts.txt \
-    --camera_device 0
-```
+## 普通训练模型
 
-## Step 5 (advanced) - Train a student model with structured sparsity
+为了对比知识蒸馏的作用，可以通过普通训练的方式得到一个模型进行对比，具体代码见``normal_train_for_zeroshot.py``
 
-The training script offers the ability to train for [structured sparsity](https://developer.nvidia.com/blog/accelerating-inference-with-sparsity-using-ampere-and-tensorrt/).  This can offer additional acceleration when deploying the model on applicable NVIDIA Jetson platforms with TensorRT.
 
-### Train the model with structured sparsity
 
-```bash
-python3 distil_model_embeddings.py \
-    resnet18 \
-    data/images \
-    data/embeddings \
-    data/models/resnet18_sparse \
-    --output_dim 512 \
-    --pretrained \
-    --init_checkpoint data/models/resnet18/checkpoint.pth \
-    --use_asp \
-    --num_epochs 25
-```
 
-### Predict with PyTorch
-
-```bash
-python3 predict_pytorch.py \
-    resnet18 \
-    data/models/resnet18_sparse/checkpoint.pth \
-    data/text_embeddings.npy \
-    assets/cat.jpg \
-    --text_prompts data/text_prompts.txt \
-    --use_asp
-```
-
-### Demo with PyTorch
-
-```bash
-python3 demo_pytorch.py \
-    resnet18 \
-    data/models/resnet18_sparse/checkpoint.pth \
-    data/text_embeddings.npy \
-    --text_prompts data/text_prompts.txt \
-    --camera_device 0 \
-    --use_asp
-```
-
-### Export to ONNX
+## 其他
 
 ```bash
 python3 export_onnx.py \
@@ -249,69 +122,4 @@ python3 export_onnx.py \
 ```
 
 
-<a name="step-6"></a>
 
-## Step 6 (advanced) - Train a student with Quantization aware training and INT8 precision
-
-In addition to structured sparsity, another technique we can use for additional performance is by using reduced INT8 precision.  Quantization aware training is a technique to minimize quantization errors introduced when deploying with INT8 precision.  It does so by applying quantization during the model forward pass during training.  This allows the model to adapt to quantization errors during training.  It also allows us to avoid the need for calibration when using post-training quantization.
-
-To distil the model with quantization aware training, follow theses steps
-
-### Train the model with quantization aware training (QAT)
-
-```bash
-python3 distil_model_embeddings.py \
-    resnet18 \
-    data/images \
-    data/embeddings \
-    data/models/resnet18_qat \
-    --output_dim 512 \
-    --pretrained \
-    --init_checkpoint data/models/resnet18/checkpoint.pth \
-    --use_qat \
-    --num_epochs 25
-```
-
-### Predict with PyTorch
-
-```bash
-python3 predict_pytorch.py \
-    resnet18 \
-    data/models/resnet18_sparse/checkpoint.pth \
-    data/text_embeddings.npy \
-    assets/cat.jpg \
-    --text_prompts data/text_prompts.txt \
-    --use_qat
-```
-
-### Demo with PyTorch
-
-```bash
-python3 demo_pytorch.py \
-    resnet18 \
-    data/models/resnet18_sparse/checkpoint.pth \
-    data/text_embeddings.npy \
-    --text_prompts data/text_prompts.txt \
-    --camera_device 0 \
-    --use_qat
-```
-
-### Export to ONNX
-
-```bash
-python3 export_onnx.py \
-    resnet18 \
-    data/models/resnet18_qat/checkpoint.pth \
-    data/onnx/resnet18_qat.onnx \
-    --use_qat
-```
-
-<a name="next-steps"></a>
-
-## Next steps
-
-We hope you found this project helpful and that you were able to train your own image classification model, without using any labeled data.  
-
-As a next step, we recommend reading through the source code to see how we used knoweldge distillation in this project.  We also recommend reading the source code to see how you can train a model with the convenient libraries in PyTorch for quantization aware training and structured sparsity, for more optimized inference on Jetson.
-
-If you have any questions, or run into any issues, please let us know by opening an issue on GitHub!
