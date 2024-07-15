@@ -81,47 +81,47 @@ if __name__ == "__main__":
     elif num_skip > 0:
         print(f"Skipping computation of {num_skip} embeddings because they already exist.")
     
-    # model, _, preprocess = open_clip.create_model_and_transforms(
-    #     args.model_name, 
-    #     pretrained=args.pretrained
-    # )
-    # model = model.to(args.device)
-    # class ImageDataset(Dataset):
-    #     def __init__(self, image_paths, preproc):
-    #         self.image_paths = image_paths
-    #         self.preproc = preproc
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        args.model_name, 
+        pretrained=args.pretrained
+    )
+    model = model.to(args.device)
+    class ImageDataset(Dataset):
+        def __init__(self, image_paths, preproc):
+            self.image_paths = image_paths
+            self.preproc = preproc
 
-    #     def __len__(self):
-    #         return len(self.image_paths)
+        def __len__(self):
+            return len(self.image_paths)
 
-    #     def __getitem__(self, index):
-    #         image = PIL.Image.open(self.image_paths[index])
-    #         image = self.preproc(image)
-    #         return index, image
+        def __getitem__(self, index):
+            image = PIL.Image.open(self.image_paths[index])
+            image = self.preproc(image)
+            return index, image
 
-    # dataset = ImageDataset(image_paths, preprocess)
+    dataset = ImageDataset(image_paths, preprocess)
 
-    # data_loader = DataLoader(
-    #     dataset=dataset,
-    #     shuffle=False,
-    #     num_workers=args.num_workers,
-    #     batch_size=args.batch_size
-    # )
+    data_loader = DataLoader(
+        dataset=dataset,
+        shuffle=False,
+        num_workers=args.num_workers,
+        batch_size=args.batch_size
+    )
 
-    # print(f"Computing embeddings for {len(image_paths)} images...")
-    # with torch.no_grad():
-    #     for indices, images in tqdm.tqdm(iter(data_loader)):
-    #         count = len(indices)
-    #         embeddings = model.encode_image(images.to(device))
+    print(f"Computing embeddings for {len(image_paths)} images...")
+    with torch.no_grad():
+        for indices, images in tqdm.tqdm(iter(data_loader)):
+            count = len(indices)
+            embeddings = model.encode_image(images.to(device))
 
-    #         for idx in range(count):
-    #             image_path_idx = int(indices[idx])
-    #             image_path = dataset.image_paths[image_path_idx]
-    #             embedding_path = get_embedding_path(
-    #                 args.output_folder,
-    #                 get_image_id_from_path(image_path)
-    #             )
-    #             embedding = embeddings[idx].detach().cpu().numpy()
-    #             np.save(embedding_path, embedding)
+            for idx in range(count):
+                image_path_idx = int(indices[idx])
+                image_path = dataset.image_paths[image_path_idx]
+                embedding_path = get_embedding_path(
+                    args.output_folder,
+                    get_image_id_from_path(image_path)
+                )
+                embedding = embeddings[idx].detach().cpu().numpy()
+                np.save(embedding_path, embedding)
 
 
