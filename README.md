@@ -63,7 +63,7 @@ python3 distil_model_embeddings.py \
     --output_dir data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18 \
 ```
 
-第二种是把图像嵌入和图像类别同时作为蒸馏目标，具体代码见``distil_model_embeddings.py``
+第二种是把图像嵌入和图像类别同时作为蒸馏目标，具体代码见``distil_model_embeddings_label.py``
 
 ```bash
 python3 distil_model_embeddings_label.py \
