@@ -112,7 +112,7 @@ if __name__ == "__main__":
     parser.add_argument("images_folder", type=str)
     parser.add_argument("embeddings_folder", type=str)
     parser.add_argument("text_embedding_path", type=str)
-    parser.add_argument("output_dir", type=str)
+    parser.add_argument("output_dir", type=str,help="输出模型的checkpoints保存位置")
     # parser.add_argument("csv_path", type=str)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=512, help="Dimension of output embedding.  Must match the embeddings generated.")

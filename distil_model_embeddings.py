@@ -95,7 +95,7 @@ if __name__ == "__main__":
     parser.add_argument("model_name", type=str)
     parser.add_argument("images_folder", type=str)
     parser.add_argument("embeddings_folder", type=str)
-    parser.add_argument("output_dir", type=str)
+    parser.add_argument("output_dir", type=str, help = "模型的checkpoints保存的位置")
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=512, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
