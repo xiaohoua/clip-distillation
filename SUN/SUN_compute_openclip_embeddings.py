@@ -19,6 +19,7 @@ import os
 import PIL.Image
 import tqdm
 import torch
+import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from argparse import ArgumentParser
@@ -29,9 +30,28 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 def get_embedding_path(embedding_folder, image_id):
         return os.path.join(embedding_folder, image_id + ".npy")
 
-def get_image_and_embedding_paths(csv_file, embedding_folder):
+# def get_image_and_embedding_paths(csv_file, embedding_folder):
+#     image_paths = []
+#     embedding_paths = []
+
+#     # 读取CSV文件
+#     with open(csv_file, 'r') as file:
+#         reader = csv.reader(file)
+#         next(reader)  # 跳过表头
+
+#         # 遍历CSV文件中的每一行
+#         for row in reader:
+#             image_path = row[0]  # 图片路径位于第一列
+#             image_id = os.path.basename(image_path).split('.')[0]  # 提取图像ID
+#             embedding_path = get_embedding_path(embedding_folder, image_id)  # 生成嵌入文件路径
+
+#             image_paths.append(image_path)
+#             embedding_paths.append(embedding_path)
+
+#     return image_paths, embedding_paths
+
+def get_image_paths(csv_file):
     image_paths = []
-    embedding_paths = []
 
     # 读取CSV文件
     with open(csv_file, 'r') as file:
@@ -41,26 +61,39 @@ def get_image_and_embedding_paths(csv_file, embedding_folder):
         # 遍历CSV文件中的每一行
         for row in reader:
             image_path = row[0]  # 图片路径位于第一列
-            image_id = os.path.basename(image_path).split('.')[0]  # 提取图像ID
-            embedding_path = get_embedding_path(embedding_folder, image_id)  # 生成嵌入文件路径
-
             image_paths.append(image_path)
-            embedding_paths.append(embedding_path)
 
-    return image_paths, embedding_paths
+    return image_paths
+class CustomCLIP(nn.Module):
+    def __init__(self, model_name, pretrained, output_dim=397):
+        super(CustomCLIP, self).__init__()
+        self.model, _, self.preprocess = open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
+        self.linear = nn.Linear(self.model.visual.output_dim, output_dim)
+
+    def forward(self, images):
+        # 获取模型的原始输出
+        with torch.no_grad():
+            outputs = self.model.encode_image(images)
+        # 通过线性层改变输出维度
+        embeddings = self.linear(outputs)
+        return embeddings
+
 if __name__ == "__main__":
 
     parser = ArgumentParser()
     # parser.add_argument("input_folder", type=str)
     parser.add_argument("--output_folder", type=str, default="data/SUN397/ViT-H-14-378-quickgelu/image_embedding")
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--output_dim", type=int, default=1024)#SUN397 有397个类
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--model_name", type=str, default="ViT-H-14-378-quickgelu")
     parser.add_argument("--pretrained", type=str, default="data/models/clip_model/DFN5B-CLIP-ViT-H-14-378/open_clip_pytorch_model.bin")
-    parser.add_argument("--device", type=str, default="cuda:3")
+    parser.add_argument("--device", type=str, default="cuda:7")
+    parser.add_argument("--imagepath_category_embedding_csv", type=str, default="SUN/SUN_imagepath_category_embedding.csv")
+    
     args = parser.parse_args()
     
-    device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
 
     if not os.path.exists(args.output_folder):
         os.makedirs(args.output_folder)
@@ -69,7 +102,8 @@ if __name__ == "__main__":
     def get_image_id_from_path(image_path):
         return os.path.basename(image_path).split('.')[0]
     
-    image_paths, embedding_paths = get_image_and_embedding_paths("sun397_imagespath_category.csv", "data/SUN397/ViT-H-14-378-quickgelu/image_embedding")
+    # image_paths, embedding_paths = get_image_and_embedding_paths(args.imagepath_category_embedding.csv, "data/SUN397/ViT-H-14-378-quickgelu/image_embedding")
+    image_paths = get_image_paths(args.imagepath_category_embedding_csv)
     old_image_paths = image_paths
     image_paths = [
         image_path for image_path in image_paths
@@ -83,7 +117,7 @@ if __name__ == "__main__":
     print(get_image_id_from_path(image_paths[0]))
     print(old_image_paths[0])
     print(image_paths[0])
-    print(embedding_paths[0])
+
     num_skip = len(old_image_paths) - len(image_paths)
     if num_skip == len(old_image_paths):
         print(f"All embeddings already computed. Nothing left to do.")
@@ -91,11 +125,13 @@ if __name__ == "__main__":
     elif num_skip > 0:
         print(f"Skipping computation of {num_skip} embeddings because they already exist.")
     
+    # model = CustomCLIP(args.model_name, args.pretrained, args.output_dim)
+
     model, _, preprocess = open_clip.create_model_and_transforms(
         args.model_name, 
         pretrained=args.pretrained
     )
-    model.to(device)
+    model.to(args.device)
     class ImageDataset(Dataset):
         def __init__(self, image_paths, preproc):
             self.image_paths = image_paths
@@ -109,8 +145,9 @@ if __name__ == "__main__":
             image = self.preproc(image)
             return index, image
 
+    # dataset = ImageDataset(image_paths, model.preprocess)
     dataset = ImageDataset(image_paths, preprocess)
-    print(dataset[146])
+    # print(dataset[146])
     data_loader = DataLoader(
         dataset=dataset,
         shuffle=False,
@@ -121,9 +158,10 @@ if __name__ == "__main__":
     print(f"Computing embeddings for {len(image_paths)} images...")
     with torch.no_grad():
         for indices, images in tqdm.tqdm(iter(data_loader)):
-            images = images.to(device)
+            images = images.to(args.device)
             count = len(indices)
             embeddings = model.encode_image(images)
+            # embeddings = model(images)
             for idx in range(count):
                 image_path_idx = int(indices[idx])
                 image_path = dataset.image_paths[image_path_idx]
