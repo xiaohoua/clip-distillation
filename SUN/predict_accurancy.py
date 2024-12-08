@@ -76,9 +76,7 @@ if __name__ == "__main__":
             Normalize(SUN_DEFAULT_MEAN, SUN_DEFAULT_STD)
         ])
     image_paths, categories, embedding_paths = read_csv(args.test_csv_path)
-    print(image_paths[0])
-    print(categories[0])
-    print(embedding_paths[0])
+
     dataset = ImageEmbeddingDataset(
         image_paths=image_paths,
         categories = categories,
@@ -96,7 +94,7 @@ if __name__ == "__main__":
         model.load_state_dict(checkpoint["model"])
     else:
         print("model is teacher")
-        #这里如果最后一层维度不合适，需要额外添加线性层，参考SUN_compute_openclip_embeddings.py
+
         model, _, preprocess = open_clip.create_model_and_transforms(
             args.model_name, 
             pretrained=args.pretrained
@@ -133,7 +131,6 @@ if __name__ == "__main__":
     labels=[]
     predictions=[]
     
-    print("111111111111111111")
     with torch.no_grad():
 
         for image,label,embedding in tqdm(iter(data_loader)):
@@ -142,10 +139,7 @@ if __name__ == "__main__":
                 output_embedding = model(image.to(device))
             else:
                 output_embedding = embedding
-                # output_embedding = model.encode_image(image.to(device))
-            # print(output_embedding.shape)
-            # print(text_embeddings.shape)
-            # exit()
+
             probs = embedding_to_probs(
                 output_embedding,
                 text_embeddings
