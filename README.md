@@ -88,7 +88,9 @@ During distillation, we trained our student model to match the *features* of our
 如果我们知识蒸馏的过程中是以图像嵌入和图像类别作为共同的目标，那学生模型就能直接用来做图像分类。如果只用了图像嵌入的话，就需要结合文本编码器做图像分类。
 具体代码见``predict_accurancy.py``
 运行：
+```bash
 python3 predict_accurancy.py --is_student --model_name resnet18 --checkpoint_path /data/home/houyazhou/clip-distillation/data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18_label/checkpoint.pth --num_classes 1024
+```
 
 ### Predict single image with PyTorch
 
