@@ -30,25 +30,6 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 def get_embedding_path(embedding_folder, image_id):
         return os.path.join(embedding_folder, image_id + ".npy")
 
-# def get_image_and_embedding_paths(csv_file, embedding_folder):
-#     image_paths = []
-#     embedding_paths = []
-
-#     # 读取CSV文件
-#     with open(csv_file, 'r') as file:
-#         reader = csv.reader(file)
-#         next(reader)  # 跳过表头
-
-#         # 遍历CSV文件中的每一行
-#         for row in reader:
-#             image_path = row[0]  # 图片路径位于第一列
-#             image_id = os.path.basename(image_path).split('.')[0]  # 提取图像ID
-#             embedding_path = get_embedding_path(embedding_folder, image_id)  # 生成嵌入文件路径
-
-#             image_paths.append(image_path)
-#             embedding_paths.append(embedding_path)
-
-#     return image_paths, embedding_paths
 
 def get_image_paths(csv_file):
     image_paths = []
@@ -89,7 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str, default="ViT-H-14-378-quickgelu")
     parser.add_argument("--pretrained", type=str, default="data/models/clip_model/DFN5B-CLIP-ViT-H-14-378/open_clip_pytorch_model.bin")
     parser.add_argument("--device", type=str, default="cuda:7")
-    parser.add_argument("--imagepath_category_embedding_csv", type=str, default="SUN/SUN_imagepath_category_embedding.csv")
+    parser.add_argument("--imagepath_category_embedding_csv", type=str, default="SUN_imagepath_category_embedding_1024.csv")
     
     args = parser.parse_args()
     
@@ -131,6 +112,9 @@ if __name__ == "__main__":
         args.model_name, 
         pretrained=args.pretrained
     )
+    # print(model)
+    print(preprocess)
+    # exit()
     model.to(args.device)
     class ImageDataset(Dataset):
         def __init__(self, image_paths, preproc):
@@ -161,6 +145,9 @@ if __name__ == "__main__":
             images = images.to(args.device)
             count = len(indices)
             embeddings = model.encode_image(images)
+            atten_layer = model.atten_layer
+            print(atten_layer[4].shape)
+            exit()
             # embeddings = model(images)
             for idx in range(count):
                 image_path_idx = int(indices[idx])

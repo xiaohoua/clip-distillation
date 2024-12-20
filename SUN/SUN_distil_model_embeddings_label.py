@@ -15,8 +15,6 @@
 
 import torch
 import timm
-import open_clip
-import PIL.Image
 import numpy as np
 import argparse
 import glob
@@ -36,38 +34,55 @@ from torchvision.transforms import (
     Resize,
     CenterCrop
 )
-import csv
 from torch.utils.tensorboard import SummaryWriter
 from vision_transformer_model import VisionTransformer
-import pdb
-from torchvision.transforms import InterpolationMode
-import pandas as pd
-import torchvision
+import csv
 #解决huggingface连接不稳定问题 命令行HF_ENDPOINT=https://hf-mirror.com python xxx.py
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-SUN_DEFAULT_MEAN = (0.48145466, 0.4578275, 0.40821073)
-SUN_DEFAULT_STD = (0.26862954, 0.26130258, 0.27577711)
+IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+
+def get_image_id_from_path(image_path):
+    return os.path.basename(image_path).split('.')[0]
+
+def get_embedding_path(embedding_folder, image_id):
+    return os.path.join(embedding_folder, image_id + ".npy")
 
 
 def find_images(images_folder: str):
-    image_paths = []
-    # 遍历根目录下的所有子文件夹
-    for root, dirs, files in os.walk(images_folder):
-        for file in files:
-            # 过滤掉非图片文件
-            if file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                # 构建图片完整路径
-                image_path = os.path.join(root, file)
-                image_paths.append(image_path)
+        image_paths = []
+        train_folder = os.path.join(images_folder, 'train')
 
-    return image_paths
+        # 获取train文件夹下的类别文件夹
+        class_folders = sorted(glob.glob(os.path.join(train_folder, "*")))
+        selected_class_folders = class_folders[:800]
+
+        for class_folder in selected_class_folders:
+            # 获取类别文件夹下的图像文件路径
+            class_images = sorted(glob.glob(os.path.join(class_folder, "*.JPEG")))[:500]
+            image_paths.extend(class_images)
+
+        return image_paths
+def read_csv(file_path):
+    with open(file_path, 'r') as file:
+        reader = csv.reader(file)
+        next(reader)  # 跳过标题行
+        image_paths = []
+        categories = []
+        embedding_path = []
+        for row in reader:
+            image_paths.append(row[0])
+            categories.append(int(row[1]))
+            embedding_path.append(row[2])
+        return image_paths, categories, embedding_path
 
 
 class ImageEmbeddingDataset(Dataset):
-    def __init__(self, image_paths, embedding_paths, transform=None):
+    def __init__(self, image_paths, categories, embedding_paths, transform=None):
         self.image_paths = image_paths
         self.embedding_paths = embedding_paths
+        self.categories = categories
         self.transform = transform
 
     def __len__(self):
@@ -78,82 +93,16 @@ class ImageEmbeddingDataset(Dataset):
         if self.transform is not None:
             image = self.transform(image)
         embedding = np.load(self.embedding_paths[index])
-        return image, embedding
+        category = self.categories[index]
+        return image, embedding, category
 
-def load_paths_from_csv(csv_file):
-    image_paths = []
-    embedding_paths = []
+def embedding_to_probs(embedding, text_embedding, temp=100.):
+        embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+        text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
+        logits = embedding @ text_embedding.T
+        logits = F.softmax(temp * logits, dim=-1)
+        return logits
 
-    with open(csv_file, mode='r', newline='', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        headers = next(reader)  # Skip the header row if there is one
-
-        for row in reader:
-            if len(row) < 3:  # Ensure the row has at least three columns
-                continue
-
-            image_path = row[0].strip()
-            embedding_path = row[2].strip()
-
-            if os.path.exists(embedding_path):
-                image_paths.append(image_path)
-                embedding_paths.append(embedding_path)
-
-    return image_paths, embedding_paths
-
-
-class SUNDataset(Dataset):
-    def __init__(self, root_dir, csv_file, transform=None):
-        # 使用 SUN397 来加载图像
-        self.dataset = torchvision.datasets.SUN397(root=root_dir, transform=transform, download=False)
-        self.transform = transform
-        
-        # 获取所有图像路径和标签
-        self.image_files = self.dataset._image_files
-        self.labels = self.dataset._labels
-        
-        # 读取CSV文件并创建映射表
-        self.csv_data = pd.read_csv(csv_file)
-        # 假设 CSV 文件中的 'Image Path' 是相对于 root_dir 的路径
-        # 并且 'Embedding Path' 是相对于 '/clip-distillation/SUN/data/SUN397/' 的路径
-        embeddings_base_path = os.path.join(root_dir, 'data', 'SUN397')
-        
-        # 创建映射表时，确保路径是绝对路径
-        self.image_to_embedding = {
-            os.path.basename(row['Image Path']): os.path.join(embeddings_base_path, row['Embedding Path'])
-            for idx, row in self.csv_data.iterrows()
-        }
-        
-        # 确保所有图像都有对应的embedding路径
-        missing_embeddings = [
-            str(img_path) for img_path, label in zip(self.image_files, self.labels) 
-            if os.path.basename(img_path) not in self.image_to_embedding
-        ]
-        if missing_embeddings:
-            raise ValueError(f"Missing embeddings for images: {missing_embeddings}")
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        image_path = self.image_files[idx]
-        base_name = os.path.basename(image_path)
-        label = self.labels[idx]
-        
-        # 加载图像
-        image = Image.open(image_path).convert('RGB')
-        if self.transform is not None:
-            image = self.transform(image)
-        
-        # 获取对应的embedding路径
-        embedding_path = self.image_to_embedding.get(base_name)
-        if embedding_path is None:
-            raise ValueError(f"No embedding found for image: {image_path}")
-        
-        # 加载embedding
-        embedding = np.load(embedding_path)
-        
-        return image, label, embedding
 
 if __name__ == "__main__":
 
@@ -162,12 +111,13 @@ if __name__ == "__main__":
     parser.add_argument("model_name", type=str)
     # parser.add_argument("images_folder", type=str)
     # parser.add_argument("embeddings_folder", type=str)
-    parser.add_argument("csv_path", type=str)
-    parser.add_argument("output_dir", type=str, help = "模型的checkpoints保存的位置")
+    parser.add_argument("text_embedding_path", type=str)
+    parser.add_argument("output_dir", type=str,help="输出模型的checkpoints保存位置")
+    parser.add_argument("--csv_path", type=str)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=1024, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda:7")
+    parser.add_argument("--device", type=str, default="cuda:6")
     parser.add_argument("--shuffle", type=bool, default=True)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -176,6 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--momentum", type=float, default=0.)
     parser.add_argument("--weight_decay", type=float, default=0.)
+    parser.add_argument("--weight_loss", type=float, default=0.3)
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "sdg"])
     parser.add_argument("--criterion", type=str, default="mse", choices=["mse", "l1", "huber"])
     parser.add_argument("--use_asp", action="store_true")
@@ -201,9 +152,14 @@ if __name__ == "__main__":
     print(f"Writing args to {args_path}...")
     with open(args_path, 'w') as f:
         json.dump(args_dict, f, indent=2)
-        
     
-    image_paths, embedding_paths = load_paths_from_csv(args.csv_path)
+    image_paths, categories, embedding_paths = read_csv(args.csv_path)
+    
+    print(f"Found embeddings for {len(embedding_paths)} out of {len(image_paths)} images.")
+    text_embeddings = torch.from_numpy(
+        # np.load('data/imagenet/text_embeddings.npy')
+        np.load(args.text_embedding_path)
+    ).to(args.device).float()
 
     if args.criterion == "mse":
         criterion = F.mse_loss
@@ -225,9 +181,7 @@ if __name__ == "__main__":
             model_name=args.model_name,
             pretrained=args.pretrained,
             num_classes=args.output_dim,
-            pretrained_cfg_overlay=dict(file=args.pretrained_path),
-            features_only = False,
-            # out_indices = [3,4]
+            pretrained_cfg_overlay=dict(file=args.pretrained_path)
         )
     elif args.model_type == "Write_by_hand":
         model = VisionTransformer(
@@ -240,8 +194,7 @@ if __name__ == "__main__":
     
     
     model = model.to(args.device)
-    # print(model)
-    # exit()
+    
     # Setup optimizer
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(
@@ -256,47 +209,22 @@ if __name__ == "__main__":
             weight_decay=args.weight_decay,
             momentum=args.momentum
         )
-    print("=======================optimizer==============")
+
     transform = Compose([
-            Resize(size=args.image_size, interpolation=InterpolationMode.BICUBIC, max_size=None, antialias=True),
-            # Resize(args.image_size),
-            CenterCrop(args.image_size),
-            ToTensor(),
-            Normalize(SUN_DEFAULT_MEAN, SUN_DEFAULT_STD)
-        ])
-    # 方法一
-    # dataset = ImageEmbeddingDataset(
-    #     image_paths=image_paths,
-    #     embedding_paths=embedding_paths,
-    #     transform=transform
-    # )
-    # print(image_paths[0])
-    # print(embedding_paths[0])
-    #方法二
-    # class ImageDataset(Dataset):
-    #     def __init__(self, image_paths, embedding_paths, preproc):
-    #         self.image_paths = image_paths
-    #         self.embedding_paths = embedding_paths
-    #         self.preproc = preproc
+        Resize(args.image_size),
+        CenterCrop(args.image_size),
+        ToTensor(),
+        Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+    ])
 
-    #     def __len__(self):
-    #         return len(self.image_paths)
+    dataset = ImageEmbeddingDataset(
+        image_paths=image_paths,
+        categories = categories,
+        embedding_paths=embedding_paths,
+        transform=transform
+    )
 
-    #     def __getitem__(self, index):
-    #         image = PIL.Image.open(self.image_paths[index])
-    #         image = self.preproc(image)
-    #         embedding = np.load(self.embedding_paths[index])
-    #         return image, embedding
-
-    # _, _, preprocess = open_clip.create_model_and_transforms(
-    #     "ViT-H-14-378-quickgelu", 
-    #     pretrained="/clip-distillation/data/models/clip_model/DFN5B-CLIP-ViT-H-14-378/open_clip_pytorch_model.bin"
-    # )
-    # dataset = ImageDataset(image_paths, embedding_paths, preprocess)
-    # print(preprocess)
-    # 方法三
-    dataset = SUNDataset('/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
-    print("=======================dataset==============")
+    # print(dataset[0])
     data_loader = DataLoader(
         dataset=dataset,
         num_workers=args.num_workers,
@@ -305,7 +233,6 @@ if __name__ == "__main__":
     )
 
     if checkpoint_path is not None and os.path.exists(checkpoint_path):
-        print(checkpoint_path)
         checkpoint = torch.load(checkpoint_path)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
@@ -317,13 +244,14 @@ if __name__ == "__main__":
         start_epoch = 0  # don't use start checkpoints epoch
     else:
         start_epoch = 0
-
+    print("=======================checkpoint_path==============")
     writer_path = os.path.join(args.output_dir, "log")
     writer = SummaryWriter(writer_path)
 
     model = model.train()
 
     print("=======================model.train==============")
+    print("start_epoch")
     print(start_epoch)
     if args.use_asp:
         from apex.contrib.sparsity import ASP
@@ -331,22 +259,29 @@ if __name__ == "__main__":
         ASP.init_optimizer_for_pruning(optimizer)
         ASP.compute_sparse_masks()
         print(f"Pruned model for 2:4 sparse weights using ASP")
-    print("[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]")
-    print(start_epoch, args.num_epochs)
+
     for epoch in range(start_epoch, args.num_epochs):
         epoch_loss = 0.
-        # print("================================")
-        for image, _, embedding in tqdm.tqdm(iter(data_loader)):
+
+        for image, embedding, categories  in tqdm.tqdm(iter(data_loader)):
             image = image.to(args.device)
             embedding = embedding.to(args.device)
             
             optimizer.zero_grad()
             output_embedding = model(image)
-            # print(model.atten_layer.shape)
-            # print(output_embedding.shape)
-            # exit()
-            loss = criterion(output_embedding, embedding)
-
+            
+            #对category进行处理
+            category = F.one_hot(categories, num_classes=397).float().to(args.device)
+            
+            probs = embedding_to_probs(
+                    output_embedding,
+                    text_embeddings
+                )
+            
+            loss_embedding = criterion(output_embedding, embedding)
+            
+            loss_label = torch.nn.functional.cross_entropy(probs, category)
+            loss = loss_embedding + args.weight_loss * loss_label
             loss.backward()
             # break
             optimizer.step()
