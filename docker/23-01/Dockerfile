@@ -5,3 +5,4 @@ RUN pip install timm open_clip_torch -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # upgrade pillow to fix "UnidentifiedImageError"
 RUN pip install pillow --upgrade -i https://pypi.tuna.tsinghua.edu.cn/simple/
+RUN pip install torchmetrics -i https://pypi.tuna.tsinghua.edu.cn/simple/

@@ -29,7 +29,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("input_folder", type=str, help="Path to the root folder of the ImageNet dataset")
     parser.add_argument("output_folder", type=str)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--model_name", type=str, default="ViT-B-32")
     parser.add_argument("--pretrained", type=str, default="laion2b_s34b_b79k")

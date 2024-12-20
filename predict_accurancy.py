@@ -1,7 +1,6 @@
 import torchvision
 import torch
 import timm
-import torchvision
 import torch.nn.functional as F
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
 import numpy as np
@@ -23,11 +22,11 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--is_student", action="store_true")
-    parser.add_argument("--model_name", type=str, default="ViT-B-32")
-    parser.add_argument("--pretrained", type=str, default="laion2b_s34b_b79k")
-    parser.add_argument("--checkpoint_path", type=str, default="data/models/resnet18/checkpoint.pth")
-    parser.add_argument("--num_classes", type=int, default=512)
-    parser.add_argument("--text_embedding_path", type=str, default="data/imagenet/laion_ViT-B-32/text_embeddings.npy")
+    parser.add_argument("--model_name", type=str, default="ViT-g-14")
+    parser.add_argument("--pretrained", type=str, default="data/models/clip_model/ViT-g-14-laion2B-s34B-b88K/open_clip_pytorch_model.bin")
+    parser.add_argument("--checkpoint_path", type=str, default="data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18/checkpoint.pth")
+    parser.add_argument("--num_classes", type=int, default=512)#这个叫num_classes不合适，因为对于imagenet数据集1000类要设置成1024
+    parser.add_argument("--text_embedding_path", type=str, default="data/imagenet/ViT-g-14-laion2B-s34B-b88K/.npy")
     parser.add_argument("--device", type=str, default="cuda:7")
     args = parser.parse_args()
 
@@ -40,7 +39,7 @@ if __name__ == "__main__":
             Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         ])
 
-    imagenet_val = torchvision.datasets.ImageFolder('/ImageNet/val',transform=transform)
+    imagenet_val = torchvision.datasets.ImageFolder('/data/dataset/ImageNet/extract/val',transform=transform)
     print(imagenet_val)
 
     if args.is_student:
@@ -55,8 +54,8 @@ if __name__ == "__main__":
         print("model is teacher")
         model, _, preprocess = open_clip.create_model_and_transforms(
             args.model_name, 
-            # pretrained=args.pretrained
-            pretrained='/clip_distillation/data/models/ViT-g-14-laion2B-s34B-b88K/open_clip_pytorch_model.bin'
+            pretrained=args.pretrained
+            # pretrained='/clip_distillation/data/models/ViT-g-14-laion2B-s34B-b88K/open_clip_pytorch_model.bin'
         )
 
     model = model.eval().to(device)
@@ -92,8 +91,7 @@ if __name__ == "__main__":
             if args.is_student:
                 output_embedding = model(image.to(device))
             else:
-                output_embedding = model.encode_image(image.to(device))
-
+                output_embedding = model.encode_image(image.to(device))              
             probs = embedding_to_probs(
                 output_embedding,
                 text_embeddings
