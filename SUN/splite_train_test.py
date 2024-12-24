@@ -1,9 +1,8 @@
-
 import pandas as pd
 import random
 
 # 读取原始CSV文件
-original_csv = 'SUN_imagepath_category_embedding_1024.csv'  # 请替换为实际的原始CSV文件名
+original_csv = 'SUN.csv'  # 请替换为实际的原始CSV文件名
 df = pd.read_csv(original_csv)
 
 # 确保数据按类别排序

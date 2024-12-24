@@ -15,6 +15,8 @@
 
 import torch
 import timm
+import open_clip
+import PIL.Image
 import numpy as np
 import argparse
 import glob
@@ -34,9 +36,10 @@ from torchvision.transforms import (
     Resize,
     CenterCrop
 )
+import csv
 from torch.utils.tensorboard import SummaryWriter
 from vision_transformer_model import VisionTransformer
-import csv
+import pdb
 from torchvision.transforms import InterpolationMode
 import pandas as pd
 import torchvision
@@ -46,18 +49,19 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 SUN_DEFAULT_MEAN = (0.48145466, 0.4578275, 0.40821073)
 SUN_DEFAULT_STD = (0.26862954, 0.26130258, 0.27577711)
 
-def read_csv(file_path):
-    with open(file_path, 'r') as file:
-        reader = csv.reader(file)
-        next(reader)  # 跳过标题行
-        image_paths = []
-        categories = []
-        embedding_path = []
-        for row in reader:
-            image_paths.append(row[0])
-            categories.append(int(row[1]))
-            embedding_path.append(row[2])
-        return image_paths, categories, embedding_path
+
+def find_images(images_folder: str):
+    image_paths = []
+    # 遍历根目录下的所有子文件夹
+    for root, dirs, files in os.walk(images_folder):
+        for file in files:
+            # 过滤掉非图片文件
+            if file.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                # 构建图片完整路径
+                image_path = os.path.join(root, file)
+                image_paths.append(image_path)
+
+    return image_paths
 
 
 class SUNDataset(Dataset):
@@ -115,21 +119,22 @@ def embedding_to_probs(embedding, text_embedding, temp=100.):
         logits = F.softmax(temp * logits, dim=-1)
         return logits
 
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("model_type", type=str, default="timm",help="timm,Write_by_hand")
     parser.add_argument("model_name", type=str)
+    parser.add_argument("teacher_name", type=str)
+    parser.add_argument("teacher_pretrained", type=str)
     # parser.add_argument("images_folder", type=str)
     # parser.add_argument("embeddings_folder", type=str)
     parser.add_argument("text_embedding_path", type=str)
-    parser.add_argument("output_dir", type=str,help="输出模型的checkpoints保存位置")
-    parser.add_argument("--csv_path", type=str)
+    parser.add_argument("csv_path", type=str)
+    parser.add_argument("output_dir", type=str, help = "模型的checkpoints保存的位置")
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=1024, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda:1")
+    parser.add_argument("--device", type=str, default="cuda:6")
     parser.add_argument("--shuffle", type=bool, default=True)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -138,7 +143,6 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--momentum", type=float, default=0.)
     parser.add_argument("--weight_decay", type=float, default=0.)
-    parser.add_argument("--weight_loss", type=float, default=0.3)
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "sdg"])
     parser.add_argument("--criterion", type=str, default="mse", choices=["mse", "l1", "huber"])
     parser.add_argument("--use_asp", action="store_true")
@@ -164,14 +168,7 @@ if __name__ == "__main__":
     print(f"Writing args to {args_path}...")
     with open(args_path, 'w') as f:
         json.dump(args_dict, f, indent=2)
-    
-    image_paths, categories, embedding_paths = read_csv(args.csv_path)
-    
-    print(f"Found embeddings for {len(embedding_paths)} out of {len(image_paths)} images.")
-    text_embeddings = torch.from_numpy(
-        # np.load('data/imagenet/text_embeddings.npy')
-        np.load(args.text_embedding_path)
-    ).to(args.device).float()
+        
 
     if args.criterion == "mse":
         criterion = F.mse_loss
@@ -188,12 +185,22 @@ if __name__ == "__main__":
         print("Initializing quantization aware training (QAT)")
         quant_modules.initialize()
     #model
+    print("load teacher model...")
+    teacher_model, _, preprocess = open_clip.create_model_and_transforms(
+        args.teacher_name, 
+        pretrained=args.teacher_pretrained
+    )
+    teacher_model.to(args.device)
+
+    print("load student model...")
     if(args.model_type == "timm"):
         model = timm.create_model(
             model_name=args.model_name,
             pretrained=args.pretrained,
             num_classes=args.output_dim,
-            pretrained_cfg_overlay=dict(file=args.pretrained_path)
+            pretrained_cfg_overlay=dict(file=args.pretrained_path),
+            features_only = False,
+            # out_indices = [3,4]
         )
     elif args.model_type == "Write_by_hand":
         model = VisionTransformer(
@@ -204,9 +211,8 @@ if __name__ == "__main__":
             heads=args.vit_heads,
         )
     
-    
-    model = model.to(args.device)
-    
+    # model = model.to(args.device)
+
     # Setup optimizer
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(
@@ -221,6 +227,11 @@ if __name__ == "__main__":
             weight_decay=args.weight_decay,
             momentum=args.momentum
         )
+    print("=======================optimizer==============")
+
+    text_embeddings = torch.from_numpy(
+        np.load(args.text_embedding_path)
+    ).to(args.device).float()
 
     transform = Compose([
             Resize(size=args.image_size, interpolation=InterpolationMode.BICUBIC, max_size=None, antialias=True),
@@ -251,14 +262,13 @@ if __name__ == "__main__":
         start_epoch = 0  # don't use start checkpoints epoch
     else:
         start_epoch = 0
-    print("=======================checkpoint_path==============")
+
     writer_path = os.path.join(args.output_dir, "log")
     writer = SummaryWriter(writer_path)
 
     model = model.train()
 
     print("=======================model.train==============")
-    print("start_epoch")
     print(start_epoch)
     if args.use_asp:
         from apex.contrib.sparsity import ASP
@@ -270,25 +280,33 @@ if __name__ == "__main__":
     for epoch in range(start_epoch, args.num_epochs):
         epoch_loss = 0.
 
-        for image, categories, embedding  in tqdm.tqdm(iter(data_loader)):
+        for image, categories, embedding in tqdm.tqdm(iter(data_loader)):
             image = image.to(args.device)
             embedding = embedding.to(args.device)
             
             optimizer.zero_grad()
-            output_embedding = model(image)
+            # #第一个loss通过output_embedding, embedding
+            # output_embedding = model(image)
             
-            #对category进行处理
-            category = F.one_hot(categories, num_classes=397).float().to(args.device)
-            
-            probs = embedding_to_probs(
-                    output_embedding,
-                    text_embeddings
-                )
-            
+            # #第二个loss通过probs, category
+            # category = F.one_hot(categories, num_classes=397).float().to(args.device)
+            # probs = embedding_to_probs(
+            #         output_embedding,
+            #         text_embeddings
+            #     )
+            # 第三个loss通过model.atten_layer 
+            teacher_embedding = teacher_model.encode_image(image)
+            print(f"teacher_model.atten_layer[4].shape:{teacher_model.atten_layer[4].shape}")
+            print(f"teacher_model.atten_layer[8].shape:{teacher_model.atten_layer[8].shape}")
+            print(f"model.atten_layer[4].shape:{model.atten_layer[4].shape}")
+            print(f"model.atten_layer[8].shape:{model.atten_layer[8].shape}")
+            print(output_embedding.shape)
+            exit()
             loss_embedding = criterion(output_embedding, embedding)
-            
             loss_label = torch.nn.functional.cross_entropy(probs, category)
+
             loss = loss_embedding + args.weight_loss * loss_label
+
             loss.backward()
             # break
             optimizer.step()
