@@ -129,7 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=1024, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda:1")
+    parser.add_argument("--device", type=str, default="cuda:7")
     parser.add_argument("--shuffle", type=bool, default=True)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -229,7 +229,7 @@ if __name__ == "__main__":
             Normalize(SUN_DEFAULT_MEAN, SUN_DEFAULT_STD)
         ])
 
-    dataset = SUNDataset('/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
+    dataset = SUNDataset('/clip-distillation/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
 
     # print(dataset[0])
     data_loader = DataLoader(
@@ -288,7 +288,7 @@ if __name__ == "__main__":
             loss_embedding = criterion(output_embedding, embedding)
             
             loss_label = torch.nn.functional.cross_entropy(probs, category)
-            loss = loss_embedding + args.weight_loss * loss_label
+            loss = loss_embedding + args.weight_loss*0.001 * loss_label
             loss.backward()
             # break
             optimizer.step()
@@ -302,13 +302,15 @@ if __name__ == "__main__":
         )
         
         print(f"EPOCH: {epoch} - LOSS: {epoch_loss}")
+        print(f"loss_embedding:{loss_embedding}")
+        print(f"loss_label:{loss_label}")
 
         checkpoint = {
             "epoch": epoch,
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict()
         }
-
+        # exit()
         torch.save(
             checkpoint,
             checkpoint_path

@@ -146,7 +146,7 @@ if __name__ == "__main__":
             count = len(indices)
             embeddings = model.encode_image(images)
             atten_layer = model.atten_layer
-            print(atten_layer[4].shape)
+            print(atten_layer[8].shape)
             exit()
             # embeddings = model(images)
             for idx in range(count):

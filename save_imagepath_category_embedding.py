@@ -9,7 +9,7 @@ transform = transforms.Compose([
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # 归一化
 ])
 
-dataset = ImageFolder('../ImageNet/train', transform=transform)
+dataset = ImageFolder('/ImageNet/train', transform=transform)
 embedding_dir = 'data/imagenet/ViT-g-14-laion2B-s34B-b88K/image_embedding'
 # 获取图像路径和 logits 对应的列表
 image_paths = [item[0] for item in dataset.imgs]

@@ -3,7 +3,7 @@ import csv
 
 root_folder = 'SUN397'  # SUN397 文件夹的路径
 csv_file = 'SUN.csv'  # 保存结果的CSV文件名
-embedding_base_folder = '/clip-distillation/SUN/data/SUN397/ViT-H-14-378-quickgelu/image_embedding_1024/'  # 嵌入文件夹路径
+embedding_base_folder = '/clip-distillation/clip-distillation/SUN/data/SUN397/ViT-H-14-378-quickgelu/image_embedding_1024/'  # 嵌入文件夹路径
 
 # 创建类别到数字的映射字典
 category_to_number = {}

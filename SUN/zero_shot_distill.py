@@ -110,7 +110,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=1024, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda:1")
     parser.add_argument("--shuffle", type=bool, default=True)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -206,7 +206,7 @@ if __name__ == "__main__":
         ])
 
 
-    dataset = SUNDataset('/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
+    dataset = SUNDataset('/clip-distillation/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
     print("=======================dataset==============")
     data_loader = DataLoader(
         dataset=dataset,

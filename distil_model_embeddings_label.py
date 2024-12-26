@@ -108,11 +108,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("model_type", type=str, default="timm",help="timm,Write_by_hand")
-    parser.add_argument("model_name", type=str)
-    parser.add_argument("images_folder", type=str)
-    parser.add_argument("embeddings_folder", type=str)
-    parser.add_argument("text_embedding_path", type=str)
-    parser.add_argument("output_dir", type=str,help="输出模型的checkpoints保存位置")
+    parser.add_argument("--model_name", type=str)
+    parser.add_argument("--images_folder", type=str)
+    parser.add_argument("--embeddings_folder", type=str)
+    parser.add_argument("--text_embedding_path", type=str)
+    parser.add_argument("--output_dir", type=str,help="输出模型的checkpoints保存位置")
     # parser.add_argument("csv_path", type=str)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=512, help="Dimension of output embedding.  Must match the embeddings generated.")
@@ -123,6 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--pretrained", action="store_true")
+    parser.add_argument("--pretrained_path", type=str)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--momentum", type=float, default=0.)
     parser.add_argument("--weight_decay", type=float, default=0.)
@@ -180,7 +181,8 @@ if __name__ == "__main__":
         model = timm.create_model(
             model_name=args.model_name,
             pretrained=args.pretrained,
-            num_classes=args.output_dim
+            num_classes=args.output_dim,
+            pretrained_cfg_overlay=dict(file=args.pretrained_path)
         )
     elif args.model_type == "Write_by_hand":
         model = VisionTransformer(
@@ -279,7 +281,12 @@ if __name__ == "__main__":
             loss_embedding = criterion(output_embedding, embedding)
             loss_label = torch.nn.functional.cross_entropy(probs, category)
             loss = loss_embedding + args.weight_loss * loss_label
+            print(f"probs:{probs}")
+            print(f"category:{category}")
+            print(f"loss_embedding:{loss_embedding}")
+            print(f"loss_label:{loss_label}")
             loss.backward()
+            exit()
             # break
             optimizer.step()
 

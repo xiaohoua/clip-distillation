@@ -154,7 +154,7 @@ if __name__ == "__main__":
     # for path, label in zip(image_paths[:5], labels[:5]):
     #     print(f"Path: {path}, Label: {label}")
     # exit()
-    dataset = SUNDataset('/clip-distillation/SUN', csv_file=args.test_csv_path, transform=transform)
+    dataset = SUNDataset('/clip-distillation/clip-distillation/SUN', csv_file=args.test_csv_path, transform=transform)
     if args.is_student:
         model = timm.create_model(
             model_name=args.model_name,

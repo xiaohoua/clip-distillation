@@ -140,6 +140,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--pretrained_path", type=str)
+    parser.add_argument("--label_loss_weight", type=float, default=0.3)
+    parser.add_argument("--layer_loss_weight", type=float, default=0.3)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--momentum", type=float, default=0.)
     parser.add_argument("--weight_decay", type=float, default=0.)
@@ -211,7 +213,7 @@ if __name__ == "__main__":
             heads=args.vit_heads,
         )
     
-    # model = model.to(args.device)
+    model = model.to(args.device)
 
     # Setup optimizer
     if args.optimizer == "adam":
@@ -240,7 +242,7 @@ if __name__ == "__main__":
             Normalize(SUN_DEFAULT_MEAN, SUN_DEFAULT_STD)
         ])
 
-    dataset = SUNDataset('/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
+    dataset = SUNDataset('/clip-distillation/clip-distillation/SUN', csv_file=args.csv_path, transform=transform)
 
     # print(dataset[0])
     data_loader = DataLoader(
@@ -267,6 +269,7 @@ if __name__ == "__main__":
     writer = SummaryWriter(writer_path)
 
     model = model.train()
+    teacher_model = teacher_model.eval()
 
     print("=======================model.train==============")
     print(start_epoch)
@@ -277,39 +280,103 @@ if __name__ == "__main__":
         ASP.compute_sparse_masks()
         print(f"Pruned model for 2:4 sparse weights using ASP")
 
+    # 定义一个标准化函数用于将适合学生模型的图片shape转为适合教师模型的shape
+    normalize_teacher = Normalize(mean=SUN_DEFAULT_MEAN, std=SUN_DEFAULT_STD)
+    #为教师模型中间层添加一个线性层，以便对齐学生模型中间层的shape
+    adapter = torch.nn.Linear(1280, 768).to(args.device)
+    #中间层损失有三种可以选择，暂用MSE
+    #余弦相似度
+    def cosine_similarity_loss(x, y):
+        cos = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
+        loss = 1 - cos(x.view(x.size(0), -1), y.view(y.size(0), -1))
+        return torch.mean(loss)
+
+    # 定义 KL 散度损失函数
+    def kl_loss(x, y):
+        # 应用 softmax/log_softmax 确保输出是概率分布
+        teacher_atten_prob = F.softmax(x, dim=-1)
+        student_atten_log_prob = F.log_softmax(y, dim=-1)
+        criterion_attention = torch.nn.KLDivLoss(reduction='batchmean')
+        return criterion_attention(teacher_atten_prob, student_atten_log_prob)
+
+    # 定义中间形状
+    intermediate_shape = (64, 197, 512)  # 这里假设中间形状为 [64, 197, 512]
+
+    # 定义适配器
+    adapter_teacher = torch.nn.Linear(1280, intermediate_shape[2]).to(args.device)
+    adapter_student = torch.nn.Linear(768, intermediate_shape[2]).to(args.device)
+
+    from torch.cuda.amp import GradScaler, autocast
+    scaler = GradScaler()  # 使用混合精度训练
+
     for epoch in range(start_epoch, args.num_epochs):
         epoch_loss = 0.
 
         for image, categories, embedding in tqdm.tqdm(iter(data_loader)):
-            image = image.to(args.device)
-            embedding = embedding.to(args.device)
-            
-            optimizer.zero_grad()
-            # #第一个loss通过output_embedding, embedding
-            # output_embedding = model(image)
-            
-            # #第二个loss通过probs, category
-            # category = F.one_hot(categories, num_classes=397).float().to(args.device)
-            # probs = embedding_to_probs(
-            #         output_embedding,
-            #         text_embeddings
-            #     )
-            # 第三个loss通过model.atten_layer 
-            teacher_embedding = teacher_model.encode_image(image)
-            print(f"teacher_model.atten_layer[4].shape:{teacher_model.atten_layer[4].shape}")
-            print(f"teacher_model.atten_layer[8].shape:{teacher_model.atten_layer[8].shape}")
-            print(f"model.atten_layer[4].shape:{model.atten_layer[4].shape}")
-            print(f"model.atten_layer[8].shape:{model.atten_layer[8].shape}")
-            print(output_embedding.shape)
-            exit()
-            loss_embedding = criterion(output_embedding, embedding)
-            loss_label = torch.nn.functional.cross_entropy(probs, category)
+            image = image.to(args.device, non_blocking=True)
+            embedding = embedding.to(args.device, non_blocking=True)
+            category = F.one_hot(categories, num_classes=397).float().to(args.device, non_blocking=True)
 
-            loss = loss_embedding + args.weight_loss * loss_label
+            optimizer.zero_grad(set_to_none=True)
 
-            loss.backward()
-            # break
-            optimizer.step()
+            with autocast():  # 混合精度训练
+                # 第一个损失通过 output_embedding, embedding
+                output_embedding = model(image)
+
+                # 第二个损失通过 probs, category
+                probs = embedding_to_probs(output_embedding, text_embeddings)
+                loss_label = torch.nn.functional.cross_entropy(probs, category)
+
+                # 第三个损失通过 teacher_model.atten_layer 和 model.atten_layer 使用 MSE
+                with torch.no_grad():
+                    # 调整图像大小并标准化
+                    image_teacher = F.interpolate(image, size=378, mode='bicubic', align_corners=False)
+                    image_teacher = normalize_teacher(image_teacher)
+                    
+                    # 获取教师模型的编码结果及其注意力层
+                    _ = teacher_model.encode_image(image_teacher)
+                    teacher_atten_layer = teacher_model.atten_layer[8].permute(1, 0, 2)  # [64, 730, 1280]
+                    # output, intermediates = teacher_model.forward_intermediates(image_teacher, indices=(4, 8), output_fmt='NLC')
+                    # prediction = self.model.forward_head(output)
+                    # aux_output = self.project(torch.cat(intermediates, -1))
+                    # print(aux_output.shape)
+                    # print(prediction.shape)
+                # 使用适配器调整教师模型的注意力层形状
+                batch_size, seq_len, feature_dim = teacher_atten_layer.shape
+                teacher_atten_layer_adapted = adapter_teacher(
+                    teacher_atten_layer.view(batch_size * seq_len, feature_dim)
+                ).view(batch_size, seq_len, -1)  # [64, 730, 512]
+
+                # 如果需要，可以通过插值或其他方法调整到目标尺寸 [64, 197, 512]
+                if teacher_atten_layer_adapted.shape[1] != intermediate_shape[1]:
+                    teacher_atten_layer_adapted = F.interpolate(
+                        teacher_atten_layer_adapted.permute(0, 2, 1), 
+                        size=intermediate_shape[1], 
+                        mode='linear', 
+                        align_corners=False
+                    ).permute(0, 2, 1)
+
+                # 获取学生模型的注意力层，并通过适配器调整其形状
+                student_atten_layer = model.atten_layer[8]
+                student_atten_layer_adapted = adapter_student(
+                    student_atten_layer.view(batch_size * intermediate_shape[1], 768)
+                ).view(batch_size, intermediate_shape[1], -1)  # [64, 197, 512]
+
+                # 计算第三个损失
+                criterion_attention = torch.nn.MSELoss()
+                loss_attention = criterion_attention(teacher_atten_layer_adapted, student_atten_layer_adapted)
+
+                # 组合所有损失
+                loss_embedding = criterion(output_embedding, embedding)
+                loss = loss_embedding + args.label_loss_weight *0.01* loss_label + args.layer_loss_weight * loss_attention
+                # print(f"loss_embedding:{loss_embedding}")
+                # print(f"loss_label:{loss_label}")
+                # print(f"loss_attention:{loss_attention}")
+                # exit()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            
 
             epoch_loss += float(loss)
 
@@ -320,6 +387,9 @@ if __name__ == "__main__":
         )
         
         print(f"EPOCH: {epoch} - LOSS: {epoch_loss}")
+        print(f"loss_embedding:{loss_embedding}")
+        print(f"loss_label:{loss_label}")
+        print(f"loss_attention:{loss_attention}")
 
         checkpoint = {
             "epoch": epoch,
