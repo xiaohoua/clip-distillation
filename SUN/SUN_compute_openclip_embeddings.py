@@ -64,13 +64,13 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     # parser.add_argument("input_folder", type=str)
     parser.add_argument("--output_folder", type=str, default="data/SUN397/ViT-H-14-378-quickgelu/image_embedding")
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--output_dim", type=int, default=1024)#SUN397 有397个类
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--model_name", type=str, default="ViT-H-14-378-quickgelu")
     parser.add_argument("--pretrained", type=str, default="data/models/clip_model/DFN5B-CLIP-ViT-H-14-378/open_clip_pytorch_model.bin")
-    parser.add_argument("--device", type=str, default="cuda:7")
-    parser.add_argument("--imagepath_category_embedding_csv", type=str, default="SUN_imagepath_category_embedding_1024.csv")
+    parser.add_argument("--device", type=str, default="cuda:5")
+    parser.add_argument("--imagepath_category_embedding_csv", type=str, default="train_data.csv")
     
     args = parser.parse_args()
     
@@ -145,9 +145,9 @@ if __name__ == "__main__":
             images = images.to(args.device)
             count = len(indices)
             embeddings = model.encode_image(images)
-            atten_layer = model.atten_layer
-            print(atten_layer[8].shape)
-            exit()
+            # atten_layer = model.atten_layer
+            # print(atten_layer[8].shape)
+            # exit()
             # embeddings = model(images)
             for idx in range(count):
                 image_path_idx = int(indices[idx])

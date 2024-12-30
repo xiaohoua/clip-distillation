@@ -16,7 +16,7 @@ categories = df['Category'].unique()
 # 训练集：包含所有前300个类别的所有图片
 train_categories = categories[:300]
 train_df = df[df['Category'].isin(train_categories)]
-train_csv = 'train_data_1024.csv'
+train_csv = 'train_data.csv'
 train_df.to_csv(train_csv, index=False)
 print(f"训练集数据（包含所有属于前300类别的图片）已保存到 {train_csv}")
 
@@ -34,6 +34,6 @@ for category in categories:
         sampled_df = category_df
     test_df = pd.concat([test_df, sampled_df], ignore_index=True)
 
-test_csv = 'test_data_1024.csv'
+test_csv = 'test_data.csv'
 test_df.to_csv(test_csv, index=False)
 print(f"测试集数据（每个类别最多50张图片）已保存到 {test_csv}")
