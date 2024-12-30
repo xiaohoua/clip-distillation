@@ -110,7 +110,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=1024, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda:1")
+    parser.add_argument("--device", type=str, default="cuda:4")
     parser.add_argument("--shuffle", type=bool, default=True)
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -133,10 +133,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     checkpoint_path = os.path.join(args.output_dir, "checkpoint.pth")
-    
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
+        print(f"Removed existing checkpoint file at {checkpoint_path}")
+
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-
 
     args_dict = vars(args)
     args_path = os.path.join(args.output_dir, "args.json")
