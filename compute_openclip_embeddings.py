@@ -23,17 +23,18 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from argparse import ArgumentParser
 from open_clip.pretrained import _PRETRAINED
-
+import csv
 if __name__ == "__main__":
 
     parser = ArgumentParser()
-    parser.add_argument("input_folder", type=str, help="Path to the root folder of the ImageNet dataset")
+    # parser.add_argument("input_folder", type=str, help="Path to the root folder of the ImageNet dataset")
     parser.add_argument("output_folder", type=str)
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("csv_file", type=str, default="imagepath_category_embedding.csv")
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--model_name", type=str, default="ViT-B-32")
     parser.add_argument("--pretrained", type=str, default="laion2b_s34b_b79k")
-    parser.add_argument("--device", type=str, default="cuda:7")
+    parser.add_argument("--device", type=str, default="cuda:6")
     args = parser.parse_args()
 
     device = args.device
@@ -41,18 +42,17 @@ if __name__ == "__main__":
     if not os.path.exists(args.output_folder):
         os.makedirs(args.output_folder)
 
+
     # image_paths = glob.glob(os.path.join(
-    #     args.input_folder, "*.jpg"
+    #     args.input_folder, "train", "*", "*.JPEG"
     # ))
-    # image_paths += glob.glob(os.path.join(
-    #     args.input_folder, "*.png"
-    # ))
-    image_paths = glob.glob(os.path.join(
-        args.input_folder, "train", "*", "*.JPEG"
-    ))
-    # image_paths += glob.glob(os.path.join(
-    #     args.input_folder, "val", "*", "*.JPEG"
-    # ))
+    # 从CSV文件中加载需要处理的图像路径
+    image_paths_from_csv = []
+    with open(args.csv_file, mode='r') as file:
+        csv_reader = csv.DictReader(file)
+        for row in csv_reader:
+            image_paths_from_csv.append(row['image_path'])
+
 
     def get_image_id_from_path(image_path):
         return os.path.basename(image_path).split('.')[0]
@@ -60,9 +60,9 @@ if __name__ == "__main__":
     def get_embedding_path(embedding_folder, image_id):
         return os.path.join(embedding_folder, image_id + ".npy")
 
-    old_image_paths = image_paths
+    # 筛选出尚未计算嵌入的图像路径
     image_paths = [
-        image_path for image_path in image_paths
+        image_path for image_path in image_paths_from_csv
         if not os.path.exists(
             get_embedding_path(
                 args.output_folder, 
@@ -70,12 +70,11 @@ if __name__ == "__main__":
             )
         )
     ]
-    print(get_image_id_from_path(old_image_paths[0]))
-    print(old_image_paths[0])
-    # print(image_paths[0])
-    print(embedding_paths[0])
-    num_skip = len(old_image_paths) - len(image_paths)
-    if num_skip == len(old_image_paths):
+    num_skip = len(image_paths_from_csv) - len(image_paths)
+    print(len(image_paths_from_csv))
+    print((len(image_paths)))
+    exit()
+    if num_skip == len(image_paths_from_csv):
         print(f"All embeddings already computed. Nothing left to do.")
         exit()
     elif num_skip > 0:
@@ -123,5 +122,8 @@ if __name__ == "__main__":
                 )
                 embedding = embeddings[idx].detach().cpu().numpy()
                 np.save(embedding_path, embedding)
+                total_embeddings_computed += 1
+
+    print(f"Total embeddings computed: {total_embeddings_computed}")
 
 

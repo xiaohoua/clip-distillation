@@ -37,6 +37,8 @@ from torchvision.transforms import (
 from torch.utils.tensorboard import SummaryWriter
 from vision_transformer_model import VisionTransformer
 import csv
+import open_clip
+import torch.nn as nn
 #解决huggingface连接不稳定问题 命令行HF_ENDPOINT=https://hf-mirror.com python xxx.py
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
@@ -107,20 +109,22 @@ def embedding_to_probs(embedding, text_embedding, temp=100.):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("model_type", type=str, default="timm",help="timm,Write_by_hand")
+    parser.add_argument("model_type", type=str, default="timm",help="timm,open_clip,Write_by_hand")
     parser.add_argument("model_name", type=str)
-    parser.add_argument("images_folder", type=str)
-    parser.add_argument("embeddings_folder", type=str)
+    # parser.add_argument("images_folder", type=str)
+    # parser.add_argument("embeddings_folder", type=str)
     parser.add_argument("text_embedding_path", type=str)
     parser.add_argument("output_dir", type=str,help="输出模型的checkpoints保存位置")
-    # parser.add_argument("csv_path", type=str)
+    parser.add_argument("csv_file", type=str)
+    parser.add_argument("--teacher_name", type=str,default="ViT-L-14")
+    parser.add_argument("--teacher_pretrained", type=str)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--output_dim", type=int, default=512, help="Dimension of output embedding.  Must match the embeddings generated.")
     parser.add_argument("--class_num", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--device", type=str, default="cuda:6")
+    parser.add_argument("--device", type=str, default="cuda:1")
     parser.add_argument("--shuffle", type=bool, default=True)
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--num_epochs", type=int, default=50)
     parser.add_argument("--pretrained", action="store_true")
     parser.add_argument("--lr", type=float, default=3e-4)
@@ -153,7 +157,7 @@ if __name__ == "__main__":
     with open(args_path, 'w') as f:
         json.dump(args_dict, f, indent=2)
     
-    image_paths, categories, embedding_paths = read_csv("imagepath_category_embedding.csv")
+    image_paths, categories, embedding_paths = read_csv(args.csv_file)
     
     print(f"Found embeddings for {len(embedding_paths)} out of {len(image_paths)} images.")
     text_embeddings = torch.from_numpy(
@@ -182,6 +186,12 @@ if __name__ == "__main__":
             pretrained=args.pretrained,
             num_classes=args.output_dim
         )
+    elif args.model_type == "open_clip":
+        model, _, transform = open_clip.create_model_and_transforms(
+        args.model_name, 
+        pretrained=args.pretrained
+    )
+        model = model.visual
     elif args.model_type == "Write_by_hand":
         model = VisionTransformer(
             input_resolution=args.vit_size,
@@ -208,13 +218,7 @@ if __name__ == "__main__":
             weight_decay=args.weight_decay,
             momentum=args.momentum
         )
-
-    transform = Compose([
-        Resize(args.image_size),
-        CenterCrop(args.image_size),
-        ToTensor(),
-        Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
-    ])
+    
 
     dataset = ImageEmbeddingDataset(
         image_paths=image_paths,
@@ -258,7 +262,11 @@ if __name__ == "__main__":
         ASP.init_optimizer_for_pruning(optimizer)
         ASP.compute_sparse_masks()
         print(f"Pruned model for 2:4 sparse weights using ASP")
-
+    # exit()
+    losses = []
+    loss_embedding = []
+    loss_label = []
+    linear_projection = nn.Linear(512, text_embeddings.shape[1]).to(args.device)
     for epoch in range(start_epoch, args.num_epochs):
         epoch_loss = 0.
 
@@ -268,17 +276,19 @@ if __name__ == "__main__":
             
             optimizer.zero_grad()
             output_embedding = model(image)
+            output_embedding = linear_projection(output_embedding)
             
             #对category进行处理
             category = F.one_hot(categories, num_classes=1000).float().to(args.device)
-            
+
             probs = embedding_to_probs(
                     output_embedding,
                     text_embeddings
                 )
             loss_embedding = criterion(output_embedding, embedding)
             loss_label = torch.nn.functional.cross_entropy(probs, category)
-            loss = loss_embedding + args.weight_loss * loss_label
+            loss = 2000*loss_embedding + loss_label
+            
             loss.backward()
             # break
             optimizer.step()
@@ -290,9 +300,14 @@ if __name__ == "__main__":
             scalar_value=epoch_loss,
             global_step=epoch
         )
-        
+        losses.append(epoch_loss)
+        loss_embedding_plt = (loss_embedding)
+        loss_label_plt = (loss_label)
         print(f"EPOCH: {epoch} - LOSS: {epoch_loss}")
-
+        print(loss_embedding)
+        print(loss_label)
+        print(loss)
+        # exit()
         checkpoint = {
             "epoch": epoch,
             "model": model.state_dict(),
@@ -303,3 +318,21 @@ if __name__ == "__main__":
             checkpoint,
             checkpoint_path
         )
+    
+    plt.figure(figsize=(14, 7))
+    epochs_range = range(start_epoch, start_epoch + len(epoch_losses))
+
+    plt.plot(epochs_range, epoch_losses, label="Total Loss", marker='o')
+    plt.plot(epochs_range, loss_embeddings, label="Embedding Loss", marker='x')
+    plt.plot(epochs_range, loss_labels, label="Label Loss", marker='s')
+
+    plt.title("Training Losses vs Epochs")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True)
+
+    # Save the figure to file
+    loss_plot_path = os.path.join(args.output_dir, "Imagenet_Vit-L-14_Vit-B-16.png")
+    plt.savefig(loss_plot_path)
+    print(f"Saved training loss curves to {loss_plot_path}")

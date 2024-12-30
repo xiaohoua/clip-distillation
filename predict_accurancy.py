@@ -27,7 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_path", type=str, default="data/models/distillation_models/ViT-g-14-laion2B-s34B-b88K/resnet18/checkpoint.pth")
     parser.add_argument("--num_classes", type=int, default=512)#这个叫num_classes不合适，因为对于imagenet数据集1000类要设置成1024
     parser.add_argument("--text_embedding_path", type=str, default="data/imagenet/ViT-g-14-laion2B-s34B-b88K/.npy")
-    parser.add_argument("--device", type=str, default="cuda:7")
+    parser.add_argument("--device", type=str, default="cuda:6")
     args = parser.parse_args()
 
     device = args.device
@@ -39,7 +39,7 @@ if __name__ == "__main__":
             Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         ])
 
-    imagenet_val = torchvision.datasets.ImageFolder('/data/dataset/ImageNet/extract/val',transform=transform)
+    imagenet_val = torchvision.datasets.ImageFolder('/ImageNet/val',transform=transform)
     print(imagenet_val)
 
     if args.is_student:
