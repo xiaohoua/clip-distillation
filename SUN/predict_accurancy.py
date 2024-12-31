@@ -1,6 +1,7 @@
 import torchvision
 from torch.nn.functional import one_hot
 import torch
+import torch.nn as nn
 import timm
 import torch.nn.functional as F
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
@@ -110,9 +111,9 @@ class SUNDataset(Dataset):
 if __name__ == "__main__":
 
     parser = ArgumentParser()
-    # parser.add_argument("model_type", type=str, default="distillation",help="timm")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("model_type", type=str, default="open_clip",help="timm,open_clip")
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_workers", type=int, default=16)
     parser.add_argument("--image_size", type=int, default=378)#SUN397在蒸馏的时候是224
     parser.add_argument("--is_student", action="store_true")
     parser.add_argument("--model_name", type=str, default="ViT-H-14-378-quickgelu")
@@ -155,23 +156,27 @@ if __name__ == "__main__":
     #     print(f"Path: {path}, Label: {label}")
     # exit()
     dataset = SUNDataset('/clip-distillation/clip-distillation/SUN', csv_file=args.test_csv_path, transform=transform)
-    if args.is_student:
+    if args.model_type == timm:
         model = timm.create_model(
             model_name=args.model_name,
             num_classes=args.output_dim
         )
-        print("model is student")
+        print("load timm model ")
         checkpoint = torch.load(args.checkpoint_path)
         model.load_state_dict(checkpoint["model"])
     else:
-        print("model is teacher")
+        print("load open_clip model ")
 
-        model, _, preprocess = open_clip.create_model_and_transforms(
+        model, _, _ = open_clip.create_model_and_transforms(
             args.model_name, 
             pretrained=args.pretrained
             #pretrained='/clip_distillation/data/models/ViT-g-14-laion2B-s34B-b88K/open_clip_pytorch_model.bin'
         )
-
+        model = model.visual
+        checkpoint = torch.load(args.checkpoint_path)
+        # 如果 checkpoint 包含的是整个模型的状态字典，则可能需要提取出视觉部分的键值对
+        visual_checkpoint = {k.replace("visual.", ""): v for k, v in checkpoint.items() if "visual." in k}
+        model.load_state_dict(visual_checkpoint, strict=False)
     model = model.eval().to(device)
     # print(model)
 
@@ -183,14 +188,10 @@ if __name__ == "__main__":
         logits = F.softmax(temp * logits, dim=-1)
         return logits
 
-    if args.is_student:
-        text_embeddings = torch.from_numpy(
-            np.load(args.text_embedding_path)
-        ).to(device).float()
-    else:
-        text_embeddings = torch.from_numpy(
-            np.load(args.text_embedding_path)
-        ).to(device).float()
+    
+    text_embeddings = torch.from_numpy(
+        np.load(args.text_embedding_path)
+    ).to(device).float()
 
     data_loader = DataLoader(
         dataset=dataset,
@@ -201,13 +202,14 @@ if __name__ == "__main__":
 
     labels=[]
     predictions=[]
-    
+    linear_projection = nn.Linear(512, 768).to(args.device)
     with torch.no_grad():
 
         for image,label,embedding in tqdm(iter(data_loader)):
             
             if args.is_student:
                 output_embedding = model(image.to(device))
+                output_embedding = linear_projection(output_embedding)
             else:
                 # output_embedding = model.encode_image(image.to(device))
                 output_embedding = embedding.to(device)
